@@ -92,4 +92,34 @@ def obter_risco_ia(features: list):
         print(f"\n[ERRO INESPERADO API]: {e}")
         return None
     
-titulo_sistema()
+def adicionar_cargo():
+    '''
+    Solicita ao admin os dados de um novo cargo, chama a API de IA para calcular o risco
+    e insere o cargo completo no banco de dados.
+    '''
+    print("\n╔═───────────────────────────────────────────────═╗")
+    print("│                    [SYMBIO]                     │")
+    print("│           Adicionar Novo Cargo com IA           │")
+    print("╚═───────────────────────────────────────────────═╝")
+    # Obter dados do cargo 
+    nome = input("Nome do Cargo (ex: Engenheiro de Prompt): ")
+    descricao = input("Descrição curta do Cargo: ")
+    
+    try:
+        # Obter as features para a IA
+        print("\nAgora, classifique o cargo em porcentagem (0 a 100): ")
+        repetitividade = int(input("Tarefa Repetitiva (0-100%): "))
+        criatividade = int(input("Exige Criatividade (0-100%): "))
+        interacao = int(input("Interação Humana (0-100%): "))
+        
+        if not (0 <= repetitividade <= 100 and 0 <= criatividade <= 100 and 0 <= interacao <= 100):
+            print("\n[ERRO]: Percentagens devem estar entre 0 e 100. Operação cancelada.")
+            return
+
+    except ValueError:
+        print("\n[ERRO]: Valores inválidos. As percentagens devem ser números. Operação cancelada.")
+        return
+    
+    if not nome:
+        print("\n[ERRO]: Nome é obrigatório. Operação cancelada.")
+        return
