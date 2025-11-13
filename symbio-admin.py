@@ -280,3 +280,40 @@ def adicionar_skill():
         if conn:
             conn.close()
 
+def listar_skills():
+    '''
+    Busca e exibe todas as skills cadastradas no banco de dados.
+    '''
+    print("\n╔═───────────────────────────────────────────────═╗")
+    print("│                     [SYMBBIO]                     │")
+    print("│           Lista de Skills Cadastradas            │")
+    print("╚═───────────────────────────────────────────────═╝")
+    conn = None
+    cursor = None
+    try:
+        conn = getConexao()
+        if conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT id_skill, nm_skill, tp_skill FROM T_SYM_SKILL ORDER BY tp_skill, nm_skill")
+            
+            skills = cursor.fetchall() # Busca todos os resultados
+            
+            if not skills:
+                print("Nenhuma skill encontrada.")
+                return
+
+            # Exibir resultados
+            print(f"{'ID':<6} | {'TIPO':<10} | {'NOME':<30}")
+            print("-" * 50)
+            for skill in skills:
+                print(f"{skill[0]:<6} | {skill[2]:<10} | {skill[1]:<30}")
+
+    except oracledb.Error as e:
+        print(f"\n[ERRO DE BANCO DE DADOS] ao listar Skills: {e}")
+    except Exception as e:
+        print(f"\n[ERRO INESPERADO]: {e}")
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
