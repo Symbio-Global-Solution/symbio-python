@@ -24,6 +24,9 @@ def limpar_terminal():
     os.system('cls' if os.name == 'nt' else 'clear')
 
 def titulo_sistema():
+    '''
+    Exibe titulo personalizado.
+    '''
     print('-=≡≣ ------------------ X -------------------- ≣≡=-')
     print('''
 
@@ -71,7 +74,6 @@ def obter_risco_ia(features: list):
     '''
     try:
         url = f"{API_IA_URL}/prever/risco"
-        # O JSON que a API espera: {"features": [num1, num2, num3]}
         payload = {"features": features}
         
         response = requests.post(url, json=payload, timeout=5)
