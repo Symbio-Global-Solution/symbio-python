@@ -123,3 +123,82 @@ def adicionar_cargo():
     if not nome:
         print("\n[ERRO]: Nome é obrigatório. Operação cancelada.")
         return
+    
+    # Chamar a API de IA
+    print(f"\nAnalisando cargo com a IA...")
+    features_ia = [repetitividade, criatividade, interacao]
+    risco_calculado = obter_risco_ia(features_ia)
+
+    if risco_calculado is None:
+        print("Não foi possível calcular o risco. O cargo NÃO será salvo.")
+        return
+
+    print(f"IA calculou o risco como: {risco_calculado}")
+    
+    # Inserir no Banco de Dados
+    conn = None
+    cursor = None
+    try:
+        conn = getConexao()
+        if conn:
+            cursor = conn.cursor()
+            
+            sql = """
+                INSERT INTO T_SYM_CARGO (nm_cargo, ds_cargo, nivel_risco_ia)
+                VALUES (:1, :2, :3)
+                RETURNING id_cargo INTO :4
+            """
+            
+            id_gerado_var = cursor.var(int)
+            cursor.execute(sql, [nome, descricao, risco_calculado, id_gerado_var])
+            novo_id = id_gerado_var.getvalue()[0]
+            
+            conn.commit()
+            print(f"\n[SUCESSO] Cargo '{nome}' adicionado com sucesso (ID: {novo_id}, Risco: {risco_calculado}).")
+
+    except oracledb.Error as e:
+        print(f"\n[ERRO]: Ao inserir cargo: {e}")
+    except Exception as e:
+        print(f"\n[ERRO]: Erro inesperado {e}")
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+def listar_cargos():
+    '''
+    Busca e exibe todos os cargos cadastrados no banco de dados.
+    '''
+    print("\n╔═───────────────────────────────────────────────═╗")
+    print("│                     [SYMBIO]                     │")
+    print("│           Lista de Cargos Cadastrados            │")
+    print("╚═───────────────────────────────────────────────═╝")
+    conn = None
+    cursor = None
+    try:
+        conn = getConexao()
+        if conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT id_cargo, nm_cargo, nivel_risco_ia FROM T_SYM_CARGO ORDER BY nivel_risco_ia, nm_cargo")
+            
+            cargos = cursor.fetchall()
+            
+            if not cargos:
+                print("Nenhum cargo encontrado.")
+                return
+
+            print(f"{'ID':<6} | {'RISCO':<10} | {'NOME':<30}")
+            print("-" * 50)
+            for cargo in cargos:
+                print(f"{cargo[0]:<6} | {cargo[2]:<10} | {cargo[1]:<30}")
+
+    except oracledb.Error as e:
+        print(f"\n[ERRO]: Ao listar cargos: {e}")
+    except Exception as e:
+        print(f"\n[ERRO]: Erro inesperado {e}")
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
