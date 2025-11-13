@@ -11,4 +11,7 @@ Inclui integração via API REST para cálculo de risco de automação com IA.
 # Importação dos Módulos
 import oracledb
 import os
-import requests 
+import requests
+
+# URL da API de IA 
+API_IA_URL = "https://symbio-api-ia.onrender.com/"
