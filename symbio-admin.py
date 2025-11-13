@@ -202,3 +202,63 @@ def listar_cargos():
             cursor.close()
         if conn:
             conn.close()
+
+# Funções de Gestão de Skills
+def adicionar_skill():
+    '''
+    Solicita ao utilizador os dados de uma nova skill e
+    a insere no banco de dados.
+    '''
+    print("\n╔═───────────────────────────────────────────────═╗")
+    print("│                     [SYMBIO]                     │")
+    print("│               Adicionar Nova Skill               │")
+    print("╚═───────────────────────────────────────────────═╝")
+    
+    # Obter dados da Skill
+    nome = input("Nome da Skill (ex: Python Avançado): ")
+    tipo = ""
+    while tipo not in ['SOFT', 'HARD']:
+        tipo = input("Tipo da Skill (SOFT ou HARD): ").upper()
+        if tipo not in ['SOFT', 'HARD']:
+            print("[ERRO] Tipo inválido. Use 'SOFT' ou 'HARD'.")
+            
+    descricao = input("Descrição curta da Skill: ")
+
+    if not nome or not tipo:
+        print("\n[ERRO] Nome e Tipo são obrigatórios. Operação cancelada.")
+        return
+
+    conn = None
+    cursor = None
+    try:
+        # Obter uma nova conexão
+        conn = getConexao()
+        if conn:
+            cursor = conn.cursor()
+            
+            # Preparar o SQL 
+            sql = """
+                INSERT INTO T_SYM_SKILL (nm_skill, tp_skill, ds_skill)
+                VALUES (:1, :2, :3)
+                RETURNING id_skill INTO :4
+            """
+            
+            id_gerado_var = cursor.var(int)
+            
+            cursor.execute(sql, [nome, tipo, descricao, id_gerado_var])
+            
+            # Obter o ID gerado
+            novo_id = id_gerado_var.getvalue()[0]
+
+            conn.commit()
+            print(f"\n[SUCESSO] Skill '{nome}' adicionada com sucesso (ID gerado: {novo_id}).")
+
+    except oracledb.Error as e:
+        print(f"\n[ERRO]: Ao inserir skill: {e}")
+    except Exception as e:
+        print(f"\n[ERRO] Inesperado: {e}")
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
