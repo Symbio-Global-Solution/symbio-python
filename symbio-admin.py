@@ -66,7 +66,24 @@ Verifique se:
     except Exception as e:
         print(f"\n[ERRO]: Ocorreu um erro: {e}")
         return None
+
+def testar_conexao():
+    '''
+    Tenta conectar ao banco de dados e imprime o status.
+    '''
+    print("--- [SYMBIO Sistema Adminsitrativo] ---")
+    print("Testando conexão com o Banco de Dados Oracle...")
     
+    conn = getConexao()
+    
+    if conn:
+        print(f"Conexão bem-sucedida! \nVersão do Banco de Dados: {conn.version}")
+        conn.close()
+        return True
+    else:
+        print("[ERRO]: Falha ao conectar.")
+        return False
+
 # Funções de Gestão de Cargos 
 def obter_risco_ia(features: list):
     '''
@@ -206,7 +223,7 @@ def listar_cargos():
 # Funções de Gestão de Skills
 def adicionar_skill():
     '''
-    Solicita ao utilizador os dados de uma nova skill e
+    Solicita ao administrador os dados de uma nova skill e
     a insere no banco de dados.
     '''
     print("\n╔═───────────────────────────────────────────────═╗")
@@ -262,3 +279,4 @@ def adicionar_skill():
             cursor.close()
         if conn:
             conn.close()
+
