@@ -57,7 +57,7 @@ def getConexao():
     try:
         conn = oracledb.connect(
             user="rm563620",
-            password="xxxxx", 
+            password="200207", 
             host="oracle.fiap.com.br",
             port=1521,
             service_name="ORCL"
