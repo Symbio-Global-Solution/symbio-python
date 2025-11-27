@@ -15,23 +15,18 @@ import requests
 import json
 import datetime
 
-# URL da API de IA 
+# URL da API de IA
 API_IA_URL = "https://symbio-api-ia.onrender.com"
 
-# Funções de Estilização do Terminal 
+# --- UTILITÁRIOS DE SISTEMA ---
 def limpar_terminal():
-    '''
-    Limpa o terminal.
-    '''
+    ''' Detecta o sistema operacional e limpa a tela corretamente '''
     os.system('cls' if os.name == 'nt' else 'clear')
 
 def titulo_sistema():
-    '''
-    Exibe titulo personalizado.
-    '''
+    ''' Renderiza o cabeçalho ASCII art do sistema '''
     print('-=≡≣ ------------------ X -------------------- ≣≡=-')
     print('''
-
 ░██████╗██╗░░░██╗███╗░░░███╗██████╗░██╗░█████╗░
 ██╔════╝╚██╗░██╔╝████╗░████║██╔══██╗██║██╔══██╗
 ╚█████╗░░╚████╔╝░██╔████╔██║██████╦╝██║██║░░██║
@@ -42,18 +37,14 @@ def titulo_sistema():
     print('-=≡≣ ------------------ X -------------------- ≣≡=-')
 
 def pausar_e_limpar():
-    '''
-    Pausa a execução e limpa o terminal.
-    '''
+    ''' Cria uma pausa na execução para leitura do usuário antes de limpar '''
     input("\nPressione Enter para continuar...")
     limpar_terminal()
     titulo_sistema()
 
-# Função para o Banco de Dados 
-def getConexao():
-    '''
-    Estabelece e retorna uma conexão com o banco de dados Oracle.
-    '''
+# --- CAMADA DE CONEXÃO ---
+def get_conexao():
+    ''' Estabelece conexão com Oracle retornando objeto de conexão ou None em caso de falha '''
     try:
         conn = oracledb.connect(
             user="rm563620",
@@ -64,739 +55,484 @@ def getConexao():
         )
         return conn
     except oracledb.Error as e:
-        print(
-        f"""[ERRO]: Não foi possível conectar ao Oracle: {e}\n
-Verifique se:
-1. O Oracle está instalado.
-2. As credenciais (user, password) estão corretas."""
-        )
+        print(f"[ERRO CRÍTICO]: Falha na conexão Oracle: {e}")
         return None
     except Exception as e:
-        print(f"\n[ERRO]: Ocorreu um erro: {e}")
+        print(f"[ERRO]: Ocorreu um erro genérico na conexão: {e}")
         return None
 
-def testar_conexao():
-    '''
-    Tenta conectar ao banco de dados e imprime o status.
-    '''
-    print("Testando conexão com o Banco de Dados Oracle...")
-    
-    conn = getConexao()
-    
+def testar_conexao_inicial():
+    ''' Verifica a saúde do banco na inicialização do script '''
+    print("Verificando disponibilidade do Banco de Dados Oracle...")
+    conn = get_conexao()
     if conn:
-        print(f"Conexão bem-sucedida! \nVersão do Banco de Dados: {conn.version}")
+        print(f"Conexão estabelecida com sucesso! Versão: {conn.version}")
         conn.close()
         return True
     else:
-        print("[ERRO]: Falha ao conectar.")
+        print("[ERRO]: Não foi possível conectar ao banco de dados.")
         return False
 
-# Funções de Gestão de Cargos 
-def obter_risco_ia(features: list):
-    '''
-    Chama a API de IA para obter a predição de risco.
-    '''
+# --- CAMADA DE REGRA DE NEGÓCIO ---
+def servico_obter_risco_ia(features: list) -> str:
+    ''' Consome a API externa para calcular risco baseado nas features fornecidas
+    Retorna a string do risco ou None se houver falha'''
     try:
         url = f"{API_IA_URL}/prever/risco"
         payload = {"features": features}
         
-        response = requests.post(url, json=payload, timeout=50) 
+        response = requests.post(url, json=payload, timeout=10) 
         
         if response.status_code == 200:
             return response.json().get("risco_predito")
         else:
-            print(f"[ERRO]: A API de IA teve um erro {response.status_code}: {response.text}")
             return None
             
-    except requests.exceptions.ConnectionError:
-        print("\n[ERRO] Não foi possível conectar à API de IA.")
-        print(f"Verifique se o servidor está rodando em: {API_IA_URL}")
+    except (requests.exceptions.ConnectionError, requests.exceptions.ReadTimeout):
         return None
-    except requests.exceptions.ReadTimeout:
-        print("\n[ERRO]: A API de IA demorou muito para responder.")
+    except Exception:
         return None
-    except Exception as e:
-        print(f"\n[ERRO]: Inesperado. {e}")
-        return None
-    
-def adicionar_cargo():
-    '''
-    Solicita ao admin os dados de um novo cargo, chama a API de IA para calcular o risco
-    e insere o cargo completo no banco de dados.
-    '''
-    print("\n╔═───────────────────────────────────────────────═╗")
-    print("│                     [SYMBIO]                     │")
-    print("│           Adicionar Novo Cargo com IA            │")
-    print("╚═───────────────────────────────────────────────═╝")
-    
-    # Obter dados do cargo 
-    nome = input("Nome do Cargo (ex: Engenheiro de Prompt): ")
-    descricao = input("Descrição curta do Cargo: ")
-    
+
+# --- CAMADA DE PERSISTÊNCIA ---
+
+def dao_inserir_cargo(nome, descricao, risco_ia):
+    ''' Insere um novo cargo e retorna o ID gerado ou lança exceção '''
+    conn = get_conexao()
+    if not conn: return None
+
+    cursor = conn.cursor()
     try:
-        # Obter as features para a IA
-        print("\nAgora, classifique o cargo em porcentagem (0 a 100%): ")
-        repetitividade = int(input("Tarefa Repetitiva (0-100%): "))
-        criatividade = int(input("Exige Criatividade (0-100%): "))
-        interacao = int(input("Interação Humana (0-100%): "))
-        
-        if not (0 <= repetitividade <= 100 and 0 <= criatividade <= 100 and 0 <= interacao <= 100):
-            print("\n[ERRO]: Percentagens devem estar entre 0 e 100.")
-            return
-
-    except ValueError:
-        print("\n[ERRO]: Valores inválidos. As percentagens devem ser números. Operação cancelada.")
-        return
-
-    if not nome:
-        print("\n[ERRO]: Nome é obrigatório. Operação cancelada.")
-        return
-    
-    # Chamar a API de IA
-    print(f"\nAnalisando cargo com a IA...")
-    features_ia = [repetitividade, criatividade, interacao]
-    risco_calculado = obter_risco_ia(features_ia)
-
-    if risco_calculado is None:
-        print("Não foi possível calcular o risco. O cargo NÃO será salvo.")
-        return
-
-    print(f"IA calculou o risco como: {risco_calculado}")
-    
-    # Inserir no Banco de Dados
-    conn = None
-    cursor = None
-    try:
-        conn = getConexao()
-        if conn:
-            cursor = conn.cursor()
-            
-            sql = """
-                INSERT INTO T_SYM_CARGO (nm_cargo, ds_cargo, nivel_risco_ia)
-                VALUES (:1, :2, :3)
-                RETURNING id_cargo INTO :4
-            """
-            
-            id_gerado_var = cursor.var(int)
-            cursor.execute(sql, [nome, descricao, risco_calculado, id_gerado_var])
-            novo_id = id_gerado_var.getvalue()[0]
-            
-            conn.commit()
-            print(f"\nCargo '{nome}' adicionado com sucesso (ID: {novo_id}, Risco: {risco_calculado}).")
-
-    except oracledb.Error as e:
-        print(f"\n[ERRO]: Ao inserir cargo: {e}")
-    except Exception as e:
-        print(f"\n[ERRO]: Erro inesperado {e}")
-    finally:
-        if cursor:
-            cursor.close()
-        if conn:
-            conn.close()
-
-def listar_cargos():
-    '''
-    Busca e exibe todos os cargos cadastrados no banco de dados.
-    Retorna True se houver cargos, False se não houver.
-    '''
-    print("\n╔═───────────────────────────────────────────────═╗")
-    print("│                     [SYMBIO]                     │")
-    print("│           Lista de Cargos Cadastrados            │")
-    print("╚═───────────────────────────────────────────────═╝")
-    conn = None
-    cursor = None
-    try:
-        conn = getConexao()
-        if conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT id_cargo, nm_cargo, nivel_risco_ia FROM T_SYM_CARGO ORDER BY nivel_risco_ia, nm_cargo")
-            
-            cargos = cursor.fetchall()
-            
-            if not cargos:
-                print("Nenhum cargo encontrado.")
-                return False 
-
-            print(f"\n{'ID':<6} | {'RISCO':<10} | {'NOME':<30}")
-            print("-" * 50)
-            for cargo in cargos:
-                print(f"{cargo[0]:<6} | {cargo[2]:<10} | {cargo[1]:<30}")
-            return True 
-
-    except oracledb.Error as e:
-        print(f"\n[ERRO]: Ao listar cargos: {e}")
-    except Exception as e:
-        print(f"\n[ERRO]: Erro inesperado {e}")
-    finally:
-        if cursor:
-            cursor.close()
-        if conn:
-            conn.close()
-    return False 
-
-def atualizar_cargo():
-    '''
-    Atualiza um cargo existente no banco de dados.
-    '''
-    if not listar_cargos(): 
-        print("\nNão há cargos para atualizar.")
-        return
-    
-    print("\n╔═───────────────────────────────────────────────═╗")
-    print("│                     [SYMBIO]                     │")
-    print("│                Atualizar Cargo                   │")
-    print("╚═───────────────────────────────────────────────═╝")
-    
-    try:
-        id_cargo_att = int(input("\nDigite o ID do cargo que deseja ATUALIZAR (ou 0 para cancelar): "))
-        if id_cargo_att == 0:
-            print("Operação cancelada.")
-            return
-    except ValueError:
-        print("\n[ERRO]: ID inválido. Deve ser um número.")
-        return
-
-    conn = None
-    cursor = None
-    try:
-        conn = getConexao()
-        if not conn:
-            return
-        
-        cursor = conn.cursor()
-        
-        # Buscar dados antigos
-        cursor.execute("SELECT nm_cargo, ds_cargo FROM T_SYM_CARGO WHERE id_cargo = :1", [id_cargo_att])
-        cargo_antigo = cursor.fetchone()
-        
-        if not cargo_antigo:
-            print("\n[ERRO]: Cargo não encontrado.")
-            return
-
-        print(f"\nAtualizando cargo: {cargo_antigo[0]}")
-        nome = input(f"Novo Nome (Deixe em branco para manter '{cargo_antigo[0]}'): ") or cargo_antigo[0]
-        descricao = input(f"Nova Descrição (Deixe em branco para manter '{cargo_antigo[1]}'): ") or cargo_antigo[1]
-        
-        # Atualizar o Risco de IA 
-        repetitividade = int(input("Tarefa Repetitiva (0-100%): "))
-        criatividade = int(input("Exige Criatividade (0-100%): "))
-        interacao = int(input("Interação Humana (0-100%): "))
-        
-        print(f"\nAnalisando cargo com a IA...")
-        features_ia = [repetitividade, criatividade, interacao]
-        risco_calculado = obter_risco_ia(features_ia)
-
-        if risco_calculado is None:
-            print("Não foi possível calcular o risco. A atualização NÃO será salva.")
-            return
-        
-        print(f"IA calculou o novo risco como: {risco_calculado}")
-
-        # Executar Update
         sql = """
-            UPDATE T_SYM_CARGO
+            INSERT INTO T_SYM_CARGO (nm_cargo, ds_cargo, nivel_risco_ia)
+            VALUES (:1, :2, :3)
+            RETURNING id_cargo INTO :4
+        """
+        id_gerado = cursor.var(int)
+        cursor.execute(sql, [nome, descricao, risco_ia, id_gerado])
+        novo_id = id_gerado.getvalue()[0]
+        conn.commit()
+        return novo_id
+    except oracledb.Error as e:
+        conn.rollback()
+        raise e
+    finally:
+        cursor.close()
+        conn.close()
+
+def dao_listar_cargos():
+    ''' Retorna uma lista de dicionários com todos os cargos '''
+    conn = get_conexao()
+    if not conn: return []
+
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT id_cargo, nm_cargo, nivel_risco_ia, ds_cargo FROM T_SYM_CARGO ORDER BY nm_cargo")
+        rows = cursor.fetchall()
+        cargos = [
+            {"id": row[0], "nome": row[1], "risco": row[2], "desc": row[3]} 
+            for row in rows
+        ]
+        return cargos
+    finally:
+        cursor.close()
+        conn.close()
+
+def dao_buscar_cargo_por_id(id_cargo):
+    ''' Retorna os dados de um único cargo ou None '''
+    conn = get_conexao()
+    if not conn: return None
+
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT nm_cargo, ds_cargo, nivel_risco_ia FROM T_SYM_CARGO WHERE id_cargo = :1", [id_cargo])
+        row = cursor.fetchone()
+        if row:
+            return {"nome": row[0], "desc": row[1], "risco": row[2]}
+        return None
+    finally:
+        cursor.close()
+        conn.close()
+
+def dao_atualizar_cargo(id_cargo, nome, descricao, risco):
+    ''' Atualiza registro e retorna True se afetou alguma linha '''
+    conn = get_conexao()
+    if not conn: return False
+
+    cursor = conn.cursor()
+    try:
+        sql = """
+            UPDATE T_SYM_CARGO 
             SET nm_cargo = :1, ds_cargo = :2, nivel_risco_ia = :3
             WHERE id_cargo = :4
         """
-        cursor.execute(sql, [nome, descricao, risco_calculado, id_cargo_att])
+        cursor.execute(sql, [nome, descricao, risco, id_cargo])
         conn.commit()
-        
-        print(f"\nCargo ID {id_cargo_att} atualizado com sucesso!")
-
-    except oracledb.Error as e:
-        print(f"\n[ERRO]: Ao atualizar cargo: {e}")
-    except ValueError:
-        print("\n[ERRO]: Valores inválidos. As percentagens devem ser números.")
-    except Exception as e:
-        print(f"\n[ERRO]: Erro inesperado {e}")
+        return cursor.rowcount > 0
+    except oracledb.Error:
+        conn.rollback()
+        return False
     finally:
-        if cursor:
-            cursor.close()
-        if conn:
-            conn.close()
+        cursor.close()
+        conn.close()
 
-def apagar_cargo():
-    '''
-    Apaga um cargo existente no banco de dados.
-    '''
-    if not listar_cargos():
-        print("\nNão há cargos para apagar.")
-        return
-    
-    print("\n╔═───────────────────────────────────────────────═╗")
-    print("│                     [SYMBIO]                     │")
-    print("│                   Apagar Cargo                   │")
-    print("╚═───────────────────────────────────────────────═╝")
-    
-    try:
-        id_cargo_del = int(input("\nDigite o ID do cargo que deseja APAGAR (ou 0 para cancelar): "))
-        if id_cargo_del == 0:
-            print("Operação cancelada.")
-            return
-    except ValueError:
-        print("\n[ERRO]: ID inválido. Deve ser um número.")
-        return
+def dao_apagar_cargo(id_cargo):
+    ''' Remove cargo e trata integridade referencial '''
+    conn = get_conexao()
+    if not conn: return False
 
-    conn = None
-    cursor = None
+    cursor = conn.cursor()
     try:
-        conn = getConexao()
-        if not conn:
-            return
-            
-        cursor = conn.cursor()
-        
-        # Executar Delete
-        cursor.execute("DELETE FROM T_SYM_CARGO WHERE id_cargo = :1", [id_cargo_del])
+        cursor.execute("DELETE FROM T_SYM_CARGO WHERE id_cargo = :1", [id_cargo])
         conn.commit()
-        
-        if cursor.rowcount > 0:
-            print(f"\nCargo ID {id_cargo_del} apagado com sucesso!")
-        else:
-            print("\nNenhum cargo foi apagado (ID não encontrado).")
-
+        return cursor.rowcount > 0
     except oracledb.Error as e:
         if 'ORA-02292' in str(e):
-            print("\n[ERRO]: Este cargo não pode ser apagado pois está sendo usado por colaboradores, realoque os colaboradores para outros cargos.")
-        else:
-            print(f"\n[ERRO]: Ao apagar cargo: {e}")
-    except Exception as e:
-        print(f"\n[ERRO]: Erro inesperado {e}")
+            raise ValueError("Integridade Referencial")
+        raise e
     finally:
-        if cursor:
-            cursor.close()
-        if conn:
-            conn.close()
+        cursor.close()
+        conn.close()
 
-# Funções de Gestão de Skills
-def adicionar_skill():
-    '''
-    Solicita ao administrador os dados de uma nova skill e
-    a insere no banco de dados.
-    '''
-    print("\n╔═───────────────────────────────────────────────═╗")
-    print("│                     [SYMBIO]                    │")
-    print("│               Adicionar Nova Skill              │")
-    print("╚═───────────────────────────────────────────────═╝")
-    
-    # Obter dados da Skill
-    nome = input("Nome da Skill (ex: Python): ")
-    tipo = ""
-    while tipo not in ['SOFT', 'HARD']:
-        tipo = input("Tipo da Skill (SOFT ou HARD): ").upper()
-        if tipo not in ['SOFT', 'HARD']:
-            print("[ERRO] Tipo inválido. Use 'SOFT' ou 'HARD'.")
-            
-    descricao = input("Descrição curta da Skill: ")
+# --- CAMADA DE PERSISTÊNCIA ---
 
-    if not nome or not tipo:
-        print("\n[ERRO] Nome e Tipo são obrigatórios. Operação cancelada.")
-        return
+def dao_inserir_skill(nome, tipo, descricao):
+    conn = get_conexao()
+    if not conn: return None
 
-    conn = None
-    cursor = None
+    cursor = conn.cursor()
     try:
-        conn = getConexao()
-        if conn:
-            cursor = conn.cursor()
-            
-            sql = """
-                INSERT INTO T_SYM_SKILL (nm_skill, tp_skill, ds_skill)
-                VALUES (:1, :2, :3)
-                RETURNING id_skill INTO :4
-            """
-            
-            id_gerado_var = cursor.var(int)
-            
-            cursor.execute(sql, [nome, tipo, descricao, id_gerado_var])
-            
-            novo_id = id_gerado_var.getvalue()[0]
-
-            conn.commit()
-            print(f"\nSkill '{nome}' adicionada com sucesso (ID gerado: {novo_id}).")
-
-    except oracledb.Error as e:
-        print(f"\n[ERRO]: Ao inserir skill: {e}")
-    except Exception as e:
-        print(f"\n[ERRO] Inesperado: {e}")
-    finally:
-        if cursor:
-            cursor.close()
-        if conn:
-            conn.close()
-
-def listar_skills():
-    '''
-    Busca e exibe todas as skills cadastradas no banco de dados.
-    '''
-    print("\n╔═───────────────────────────────────────────────═╗")
-    print("│                     [SYMBIO]                     │") 
-    print("│           Lista de Skills Cadastradas            │")
-    print("╚═───────────────────────────────────────────────═╝")
-    conn = None
-    cursor = None
-    try:
-        conn = getConexao()
-        if conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT id_skill, nm_skill, tp_skill FROM T_SYM_SKILL ORDER BY tp_skill, nm_skill")
-            
-            skills = cursor.fetchall()
-            
-            if not skills:
-                print("Nenhuma skill encontrada.")
-                return False 
-
-            print(f"\n{'ID':<6} | {'TIPO':<10} | {'NOME':<30}")
-            print("-" * 50)
-            for skill in skills:
-                print(f"{skill[0]:<6} | {skill[2]:<10} | {skill[1]:<30}")
-            return True 
-
-    except oracledb.Error as e:
-        print(f"\n[ERRO] Ao listar Skills: {e}")
-    except Exception as e:
-        print(f"\n[ERRO]: Inesperado {e}")
-    finally:
-        if cursor:
-            cursor.close()
-        if conn:
-            conn.close()
-    return False 
-
-def atualizar_skill():
-    '''
-    Atualiza uma skill existente no banco de dados.
-    '''
-    if not listar_skills():
-        print("\nNão há skills para atualizar.")
-        return
-    
-    print("\n╔═───────────────────────────────────────────────═╗")
-    print("│                     [SYMBIO]                     │")
-    print("│                 Atualizar Skill                  │")
-    print("╚═───────────────────────────────────────────────═╝")
-    
-    try:
-        id_skill_att = int(input("\nDigite o ID da skill que deseja ATUALIZAR (ou 0 para cancelar): "))
-        if id_skill_att == 0:
-            print("Operação cancelada.")
-            return
-    except ValueError:
-        print("\n[ERRO]: ID inválido. Deve ser um número.")
-        return
-
-    conn = None
-    cursor = None
-    try:
-        conn = getConexao()
-        if not conn:
-            return
-        
-        cursor = conn.cursor()
-        
-        # Buscar dados antigos
-        cursor.execute("SELECT nm_skill, tp_skill, ds_skill FROM T_SYM_SKILL WHERE id_skill = :1", [id_skill_att])
-        skill_antiga = cursor.fetchone()
-        
-        if not skill_antiga:
-            print("\n[ERRO]: Skill não encontrada.")
-            return
-
-        print(f"\nAtualizando skill: {skill_antiga[0]}")
-        nome = input(f"Novo Nome (Deixe em branco para manter '{skill_antiga[0]}'): ") or skill_antiga[0]
-        
-        tipo = ""
-        while tipo not in ['SOFT', 'HARD', '']:
-            tipo = input(f"Novo Tipo (SOFT ou HARD) (Deixe em branco para manter '{skill_antiga[1]}'): ").upper()
-            if tipo not in ['SOFT', 'HARD', '']:
-                print("[ERRO] Tipo inválido. Use 'SOFT', 'HARD' ou deixe em branco.")
-        if tipo == '':
-            tipo = skill_antiga[1]
-            
-        descricao = input(f"Nova Descrição (Deixe em branco para manter '{skill_antiga[2]}'): ") or skill_antiga[2]
-        
-        # Executar Update
         sql = """
-            UPDATE T_SYM_SKILL
-            SET nm_skill = :1, tp_skill = :2, ds_skill = :3
-            WHERE id_skill = :4
+            INSERT INTO T_SYM_SKILL (nm_skill, tp_skill, ds_skill)
+            VALUES (:1, :2, :3)
+            RETURNING id_skill INTO :4
         """
-        cursor.execute(sql, [nome, tipo, descricao, id_skill_att])
+        id_gerado = cursor.var(int)
+        cursor.execute(sql, [nome, tipo, descricao, id_gerado])
+        novo_id = id_gerado.getvalue()[0]
         conn.commit()
-        
-        print(f"\nSkill ID {id_skill_att} atualizada com sucesso!")
-
+        return novo_id
     except oracledb.Error as e:
-        print(f"\n[ERRO]: Ao atualizar skill: {e}")
-    except Exception as e:
-        print(f"\n[ERRO]: Erro inesperado {e}")
+        conn.rollback()
+        raise e
     finally:
-        if cursor:
-            cursor.close()
-        if conn:
-            conn.close()
+        cursor.close()
+        conn.close()
 
-def apagar_skill():
-    '''
-    Apaga uma skill existente no banco de dados.
-    '''
-    if not listar_skills():
-        print("\nNão há skills para apagar.")
-        return
-    
-    print("\n╔═───────────────────────────────────────────────═╗")
-    print("│                     [SYMBIO]                     │")
-    print("│                   Apagar Skill                   │")
-    print("╚═───────────────────────────────────────────────═╝")
-    
+def dao_listar_skills():
+    ''' Busca todas as skills retornando lista estruturada '''
+    conn = get_conexao()
+    if not conn: return []
+
+    cursor = conn.cursor()
     try:
-        id_skill_del = int(input("\nDigite o ID da skill que deseja APAGAR (ou 0 para cancelar): "))
-        if id_skill_del == 0:
-            print("Operação cancelada.")
+        cursor.execute("SELECT id_skill, nm_skill, tp_skill, ds_skill FROM T_SYM_SKILL ORDER BY tp_skill, nm_skill")
+        return [{"id": r[0], "nome": r[1], "tipo": r[2], "desc": r[3]} for r in cursor.fetchall()]
+    finally:
+        cursor.close()
+        conn.close()
+
+def dao_buscar_skill_por_id(id_skill):
+    ''' Busca skill específica pelo ID '''
+    conn = get_conexao()
+    if not conn: return None
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT nm_skill, tp_skill, ds_skill FROM T_SYM_SKILL WHERE id_skill = :1", [id_skill])
+        row = cursor.fetchone()
+        return {"nome": row[0], "tipo": row[1], "desc": row[2]} if row else None
+    finally:
+        cursor.close()
+        conn.close()
+
+def dao_atualizar_skill(id_skill, nome, tipo, descricao):
+    ''' Atualiza dados da skill '''
+    conn = get_conexao()
+    if not conn: return False
+    cursor = conn.cursor()
+    try:
+        sql = "UPDATE T_SYM_SKILL SET nm_skill = :1, tp_skill = :2, ds_skill = :3 WHERE id_skill = :4"
+        cursor.execute(sql, [nome, tipo, descricao, id_skill])
+        conn.commit()
+        return cursor.rowcount > 0
+    except Exception:
+        conn.rollback()
+        return False
+    finally:
+        cursor.close()
+        conn.close()
+
+def dao_apagar_skill(id_skill):
+    ''' Remove skill do banco '''
+    conn = get_conexao()
+    if not conn: return False
+    cursor = conn.cursor()
+    try:
+        cursor.execute("DELETE FROM T_SYM_SKILL WHERE id_skill = :1", [id_skill])
+        conn.commit()
+        return cursor.rowcount > 0
+    except oracledb.Error as e:
+        if 'ORA-02292' in str(e): raise ValueError("Integridade Referencial")
+        raise e
+    finally:
+        cursor.close()
+        conn.close()
+
+# --- CAMADA DE INTERFACE ---
+
+def ui_adicionar_cargo():
+    print("\n--- Adicionar Novo Cargo ---")
+    nome = input("Nome do Cargo: ")
+    descricao = input("Descrição curta: ")
+    
+    # Validação simples de entrada
+    if not nome:
+        print("[AVISO] Nome é obrigatório.")
+        return
+
+    try:
+        print("\nDefinição de parâmetros para Análise de IA (0-100%):")
+        rep = int(input("Nível de Repetitividade: "))
+        cri = int(input("Exigência de Criatividade: "))
+        hum = int(input("Interação Humana: "))
+        
+        if not (0 <= rep <= 100 and 0 <= cri <= 100 and 0 <= hum <= 100):
+            print("[ERRO] Valores devem ser entre 0 e 100.")
             return
-    except ValueError:
-        print("\n[ERRO]: ID inválido. Deve ser um número.")
-        return
 
-    conn = None
-    cursor = None
-    try:
-        conn = getConexao()
-        if not conn:
+        print("Consultando API de IA...")
+        risco = servico_obter_risco_ia([rep, cri, hum])
+        
+        if risco is None:
+            print("[ERRO] Falha na comunicação com a IA. Cadastro abortado.")
             return
             
-        cursor = conn.cursor()
-
-        # Executar Delete
-        cursor.execute("DELETE FROM T_SYM_SKILL WHERE id_skill = :1", [id_skill_del])
-        conn.commit()
+        print(f"Risco calculado pela IA: {risco}")
         
-        if cursor.rowcount > 0:
-            print(f"\nSkill ID {id_skill_del} apagada com sucesso!")
-        else:
-            print("\nNenhuma skill foi apagada (ID não encontrado).")
-
-    except oracledb.Error as e:
-        if 'ORA-02292' in str(e):
-            print("\n[ERRO]: Esta skill não pode ser apagada pois está em uso por um colaborador ou vaga.")
-        else:
-            print(f"\n[ERRO]: Ao apagar skill: {e}")
+        novo_id = dao_inserir_cargo(nome, descricao, risco)
+        if novo_id:
+            print(f"Sucesso! Cargo cadastrado com ID: {novo_id}")
+            
+    except ValueError:
+        print("[ERRO] Entrada inválida. Use apenas números inteiros.")
     except Exception as e:
-        print(f"\n[ERRO]: Erro inesperado {e}")
-    finally:
-        if cursor:
-            cursor.close()
-        if conn:
-            conn.close()
+        print(f"[ERRO] Falha ao salvar: {e}")
 
-# Funções de Exportação 
+def ui_listar_cargos():
+    print("\n--- Lista de Cargos ---")
+    lista = dao_listar_cargos()
+    
+    if not lista:
+        print("Nenhum cargo encontrado.")
+        return False
+        
+    print(f"{'ID':<5} | {'RISCO':<10} | {'NOME':<30}")
+    print("-" * 50)
+    for c in lista:
+        print(f"{c['id']:<5} | {c['risco']:<10} | {c['nome']:<30}")
+    return True
+
+def ui_atualizar_cargo():
+    if not ui_listar_cargos(): return
+    
+    try:
+        id_target = int(input("\nID do cargo para atualizar (0 cancela): "))
+        if id_target == 0: return
+        
+        dados_antigos = dao_buscar_cargo_por_id(id_target)
+        if not dados_antigos:
+            print("[ERRO] Cargo não encontrado.")
+            return
+            
+        print(f"Editando: {dados_antigos['nome']}")
+        novo_nome = input(f"Novo Nome [{dados_antigos['nome']}]: ") or dados_antigos['nome']
+        nova_desc = input(f"Nova Desc [{dados_antigos['desc']}]: ") or dados_antigos['desc']
+        
+        print("Recalcular Risco IA (Necessário redigitar parâmetros):")
+        rep = int(input("Repetitividade (0-100): "))
+        cri = int(input("Criatividade (0-100): "))
+        hum = int(input("Interação Humana (0-100): "))
+        
+        novo_risco = servico_obter_risco_ia([rep, cri, hum])
+        if not novo_risco:
+            print("Erro na IA. Operação cancelada.")
+            return
+            
+        sucesso = dao_atualizar_cargo(id_target, novo_nome, nova_desc, novo_risco)
+        if sucesso:
+            print("Cargo atualizado com sucesso!")
+        else:
+            print("Erro ao atualizar.")
+            
+    except ValueError:
+        print("[ERRO] Digite um ID válido.")
+
+def ui_apagar_cargo():
+    if not ui_listar_cargos(): return
+    try:
+        id_del = int(input("\nID do cargo para apagar (0 cancela): "))
+        if id_del == 0: return
+        
+        if dao_apagar_cargo(id_del):
+            print("Cargo removido com sucesso.")
+        else:
+            print("Cargo não encontrado.")
+            
+    except ValueError as e:
+        if str(e) == "Integridade Referencial":
+            print("[ERRO] Não é possível apagar: Cargo em uso por colaboradores.")
+        else:
+            print("[ERRO] ID Inválido.")
+
+# --- UI FUNÇÕES SKILLS  ---
+
+def ui_adicionar_skill():
+    print("\n--- Adicionar Skill ---")
+    nome = input("Nome: ")
+    tipo = input("Tipo (HARD/SOFT): ").upper()
+    desc = input("Descrição: ")
+    
+    if tipo not in ['HARD', 'SOFT']:
+        print("Tipo inválido.")
+        return
+        
+    try:
+        nid = dao_inserir_skill(nome, tipo, desc)
+        print(f"Skill criada com ID: {nid}")
+    except Exception as e:
+        print(f"Erro ao inserir: {e}")
+
+def ui_listar_skills():
+    lista = dao_listar_skills()
+    if not lista:
+        print("Nenhuma skill cadastrada.")
+        return False
+        
+    print(f"\n{'ID':<5} | {'TIPO':<6} | {'NOME'}")
+    print("-" * 40)
+    for s in lista:
+        print(f"{s['id']:<5} | {s['tipo']:<6} | {s['nome']}")
+    return True
+
+def ui_atualizar_skill():
+    if not ui_listar_skills(): return
+    try:
+        tid = int(input("\nID para atualizar: "))
+        antiga = dao_buscar_skill_por_id(tid)
+        if not antiga:
+            print("Skill não encontrada.")
+            return
+            
+        nm = input(f"Nome [{antiga['nome']}]: ") or antiga['nome']
+        tp = input(f"Tipo [{antiga['tipo']}]: ").upper() or antiga['tipo']
+        ds = input(f"Desc [{antiga['desc']}]: ") or antiga['desc']
+        
+        if dao_atualizar_skill(tid, nm, tp, ds):
+            print("Skill atualizada.")
+    except ValueError:
+        print("ID Inválido.")
+
+def ui_apagar_skill():
+    if not ui_listar_skills(): return
+    try:
+        tid = int(input("\nID para apagar: "))
+        if dao_apagar_skill(tid):
+            print("Skill apagada.")
+        else:
+            print("Skill não encontrada.")
+    except ValueError as e:
+        if str(e) == "Integridade Referencial":
+            print("Skill em uso, não pode apagar.")
+        else:
+            print("Entrada inválida.")
+
+# --- EXPORTAÇÃO JSON ---
 def json_converter(o):
-    '''
-    Converte tipos de dados não serializáveis (como data) para JSON.
-    '''
-    if isinstance(o, datetime.datetime) or isinstance(o, datetime.date):
+    ''' Helper para converter objetos datetime em string para o JSON '''
+    if isinstance(o, (datetime.date, datetime.datetime)):
         return o.isoformat()
 
-def exportar_relatorios_json():
-    '''
-    Executa 3 consultas diferentes e exporta os resultados para arquivos JSON.
-    '''
-    print("\n╔═───────────────────────────────────────────────═╗")
-    print("│                     [SYMBIO]                     │")
-    print("│            Exportar Relatórios JSON              │")
-    print("╚═───────────────────────────────────────────────═╝")
+def exportar_relatorios():
+    print("\nGerando relatórios JSON...")
+    conn = get_conexao()
+    if not conn: return
     
-    conn = None
-    cursor = None
+    cursor = conn.cursor()
     try:
-        conn = getConexao()
-        if not conn:
-            return
+        cursor.execute("SELECT nm_cargo, nivel_risco_ia FROM T_SYM_CARGO WHERE nivel_risco_ia = 'ALTO'")
+        dados = [dict(zip([d[0].lower() for d in cursor.description], row)) for row in cursor.fetchall()]
         
-        cursor = conn.cursor()
+        with open('relatorio_risco_alto.json', 'w', encoding='utf-8') as f:
+            json.dump(dados, f, indent=4, ensure_ascii=False)
+            
+        print("Relatório 'relatorio_risco_alto.json' gerado com sucesso.")
         
-        # Consulta 1: Cargos em Alto Risco 
-        sql1 = """
-            SELECT C.nm_colaborador, CG.nm_cargo, CG.nivel_risco_ia
-            FROM T_SYM_COLABORADOR C
-            INNER JOIN T_SYM_CARGO CG ON C.id_cargo = CG.id_cargo
-            WHERE CG.nivel_risco_ia = 'ALTO'
-            ORDER BY C.nm_colaborador
-        """
-        cursor.execute(sql1)
-        colunas = [col[0].lower() for col in cursor.description]
-        resultado1 = [dict(zip(colunas, row)) for row in cursor.fetchall()]
-        
-        with open('export_1_cargos_alto_risco.json', 'w', encoding='utf-8') as f:
-            json.dump(resultado1, f, ensure_ascii=False, indent=4, default=json_converter)
-        
-
-        # Consulta 2: Contagem de funcionários por Risco 
-        sql2 = """
-            SELECT CG.nivel_risco_ia, COUNT(C.id_colaborador) AS total_funcionarios
-            FROM T_SYM_CARGO CG
-            LEFT JOIN T_SYM_COLABORADOR C ON CG.id_cargo = C.id_cargo
-            GROUP BY CG.nivel_risco_ia
-            ORDER BY total_funcionarios DESC
-        """
-        cursor.execute(sql2)
-        colunas = [col[0].lower() for col in cursor.description]
-        resultado2 = [dict(zip(colunas, row)) for row in cursor.fetchall()]
-        
-        with open('export_2_contagem_por_risco.json', 'w', encoding='utf-8') as f:
-            json.dump(resultado2, f, ensure_ascii=False, indent=4, default=json_converter)
-        
-        
-        # Consulta 3: Lista de Skills por Tipo 
-        sql3 = "SELECT tp_skill, nm_skill, ds_skill FROM T_SYM_SKILL ORDER BY tp_skill, nm_skill"
-        cursor.execute(sql3)
-        colunas = [col[0].lower() for col in cursor.description]
-        resultado3 = [dict(zip(colunas, row)) for row in cursor.fetchall()]
-        
-        with open('export_3_lista_de_skills.json', 'w', encoding='utf-8') as f:
-            json.dump(resultado3, f, ensure_ascii=False, indent=4, default=json_converter)
-        
-        
-        print("\n3 relatórios JSON foram gerados com sucesso:")
-        print("  - export_1_cargos_alto_risco.json")
-        print("  - export_2_contagem_por_risco.json")
-        print("  - export_3_lista_de_skills.json")
-
-    except oracledb.Error as e:
-        print(f"\n[ERRO]: Ao exportar JSON: {e}")
     except Exception as e:
-        print(f"\n[ERRO]: Inesperado {e}")
+        print(f"Erro na exportação: {e}")
     finally:
-        if cursor:
-            cursor.close()
-        if conn:
-            conn.close()
+        cursor.close()
+        conn.close()
 
-# Funções de Menu
-def menu_cargos():
-    '''
-    Menu de Gerenciamento de Cargos.
-    '''
+# --- MENUS ---
+def exibir_menu_cargos():
     while True:
         limpar_terminal()
         titulo_sistema()
-        print(f"\nGestão de Cargos\n")
-        print("1. Adicionar Novo Cargo")
-        print("2. Listar Cargos")
-        print("3. Atualizar Cargo")
-        print("4. Apagar Cargo")
-        print("0. Voltar ao Menu Principal")
+        print("\n[GESTÃO DE CARGOS]")
+        print("1. Adicionar | 2. Listar | 3. Atualizar | 4. Apagar | 0. Voltar")
+        op = input("Opção: ")
         
-        escolha = input("Digite a sua opção: ")
+        if op == '1': ui_adicionar_cargo()
+        elif op == '2': ui_listar_cargos()
+        elif op == '3': ui_atualizar_cargo()
+        elif op == '4': ui_apagar_cargo()
+        elif op == '0': break
+        else: print("Opção inválida.")
         
-        if escolha == '1':
-            limpar_terminal()
-            adicionar_cargo()
-            pausar_e_limpar()
-        elif escolha == '2':
-            limpar_terminal()
-            listar_cargos()
-            pausar_e_limpar()
-        elif escolha == '3':
-            limpar_terminal()
-            atualizar_cargo()
-            pausar_e_limpar()
-        elif escolha == '4':
-            limpar_terminal()
-            apagar_cargo()
-            pausar_e_limpar()
-        elif escolha == '0':
-            print("Voltando ao menu principal...")
-            break
-        else:
-            print("\n[ERRO] Opção inválida.")
-            pausar_e_limpar()
+        if op != '0': pausar_e_limpar()
 
-def menu_skills():
-    '''
-    Menu de Gerenciamento de Skills.
-    '''
+def exibir_menu_skills():
     while True:
         limpar_terminal()
         titulo_sistema()
-        print("\nGestão de Skills\n")
-        print("1. Adicionar Nova Skill")
-        print("2. Listar Skills")
-        print("3. Atualizar Skill")
-        print("4. Apagar Skill")
-        print("0. Voltar ao Menu Principal") 
+        print("\n[GESTÃO DE SKILLS]")
+        print("1. Adicionar | 2. Listar | 3. Atualizar | 4. Apagar | 0. Voltar")
+        op = input("Opção: ")
         
-        escolha = input("Digite a sua opção: ")
+        if op == '1': ui_adicionar_skill()
+        elif op == '2': ui_listar_skills()
+        elif op == '3': ui_atualizar_skill()
+        elif op == '4': ui_apagar_skill()
+        elif op == '0': break
+        else: print("Opção inválida.")
         
-        if escolha == '1':
-            limpar_terminal()
-            adicionar_skill()
-            pausar_e_limpar()
-        elif escolha == '2':
-            limpar_terminal()
-            listar_skills()
-            pausar_e_limpar()
-        elif escolha == '3':
-            limpar_terminal()
-            atualizar_skill()
-            pausar_e_limpar()
-        elif escolha == '4':
-            limpar_terminal() 
-            apagar_skill()
-            pausar_e_limpar()
-        elif escolha == '0': 
-            print("Voltando ao menu principal...")
-            break 
-        else:
-            print("\n[ERRO] Opção inválida.")
-            pausar_e_limpar()
+        if op != '0': pausar_e_limpar()
 
-def menu_principal():
-    '''
-    Exibe o menu principal interativo para o utilizador.
-    '''
-    limpar_terminal()
-    titulo_sistema()
-    
+def main():
+    if not testar_conexao_inicial():
+        return
+
     while True:
-        print(f"\nMenu de Opções\n")
-        print("1. Gerenciar Cargos")
-        print("2. Gerenciar Skills")
-        print("3. Exportar Relatórios (JSON)")
+        limpar_terminal()
+        titulo_sistema()
+        print("\n[MENU PRINCIPAL]")
+        print("1. Cargos")
+        print("2. Skills")
+        print("3. Exportar Relatórios")
         print("0. Sair")
         
-        escolha = input("Digite a sua opção: ")
+        escolha = input(">> ")
         
-        if escolha == '1':
-            limpar_terminal() 
-            menu_cargos()
-            limpar_terminal() 
-            titulo_sistema()  
-        elif escolha == '2':
-            limpar_terminal()
-            menu_skills()
-            limpar_terminal() 
-            titulo_sistema()  
-        elif escolha == '3':
-            limpar_terminal()
-            exportar_relatorios_json()
+        if escolha == '1': exibir_menu_cargos()
+        elif escolha == '2': exibir_menu_skills()
+        elif escolha == '3': 
+            exportar_relatorios()
             pausar_e_limpar()
         elif escolha == '0':
-            limpar_terminal()
-            print("Encerrando programa...")
+            print("Encerrando sistema...")
             break
         else:
-            print("\n[ERRO] Opção inválida. Por favor, tente novamente.")
+            print("Opção inválida.")
             pausar_e_limpar()
 
-# Programa Principal
-def main():
-    if testar_conexao(): 
-        pausar_e_limpar()
-        menu_principal()
-    else:
-        print("\n[ERRO] Não foi possível iniciar o sistema. Verifique a conexão com o banco.")
-        input("Pressione Enter para sair...")
-
-main()
+if __name__ == "__main__":
+    main()
